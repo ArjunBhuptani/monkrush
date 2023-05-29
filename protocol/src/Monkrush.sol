@@ -35,6 +35,7 @@ using ECDSA for bytes32;
         address receiver;
         address asset;
         uint256 credit;
+        uint256 expiry;
     }
 
     // Offchain data structures
@@ -42,7 +43,6 @@ using ECDSA for bytes32;
     struct Update {
         bytes32 channelId;
         uint256 debit;
-        bool isFinal;
     }
 
     struct Packet {
@@ -107,7 +107,8 @@ using ECDSA for bytes32;
         address sender,
         address receiver,
         address asset,
-        uint256 credit
+        uint256 credit,
+        uint256 validity
     ) external returns(Packet) {
         // Create channel
         Channel channel = Channel({
@@ -115,7 +116,8 @@ using ECDSA for bytes32;
             sender: sender,
             receiver: receiver,
             asset: asset,
-            credit: credit
+            credit: credit,
+            expiry: block.number + validity
         });
         bytes32 channelId = getChannelIdFromChannel(channel);
 
@@ -150,8 +152,9 @@ using ECDSA for bytes32;
     ) external {
         Channel channel = channels[packet.update.channelId];
         require(channel.uid != bytes32(0), "Channel must exist");
+        require(msg.sender == channel.sender || msg.sender == channel.receiver, "Caller must be channel party");
         if(msg.sender == channel.sender) {
-            require(packet.update.isFinal);
+            require(block.number >= channel.expiry, "Channel must be expired for sender withdraw");
         }
 
         bytes32 message = prefixed(keccak256(abi.encodePacked(packet)));
@@ -187,8 +190,10 @@ using ECDSA for bytes32;
         uint256 amount,
         bool isFinal
     ) external view returns (Packet, Update) {
-        require(channels[packet.update.channelId].uid != bytes32(0), "Channel must exist");
-        require(update.packet.debit + amount <= channels[packet.update.channelId].credit);
+        Channel channel = channels[packet.update.channelId];
+        require(channel.uid != bytes32(0), "Channel must exist");
+        require(channel.expiry < block.number, "Channel expired");
+        require(update.packet.debit + amount <= channel.credit);
         // Packet channel balances
         packet.debit = packet.debit + amount;
         packet.isFinal = isFinal;
@@ -208,14 +213,15 @@ using ECDSA for bytes32;
         Packet oldPacket,
         Packet newPacket // TODO is this correct?
     ) external view returns (Packet) {
-        require(channels[packet.update.channelId].uid != bytes32(0), "Channel must exist");
+        Channel channel = channels[packet.update.channelId];
+        require(channel.uid != bytes32(0), "Channel must exist");
+        require(channel.expiry < block.number, "Channel expired");
         require(update.packet.debit <= channel[update.packet.channelId].credit, "Debit must be lower than credit");
         require(packet.debit <= update.packet.debit, "Debit can only increase");
         require(!packet.isFinal, "Cannot update finalized channel");
 
        // Packet channel balances
         packet.debit = packet.debit + update.packet.amount;
-        packet.isFinal = update.packet.isFinal;
 
         // Verify proof
         bytes32 proofHash = prefixed(keccak256(abi.encodePacked(packet)));

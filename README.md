@@ -1,5 +1,7 @@
 # Monkrush
 
+![image](./monkrush.png)
+
 Monkrush is a simple, ultra-scalable micropayment system.
 
 ## How does Monkrush work?

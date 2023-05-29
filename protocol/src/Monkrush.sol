@@ -97,9 +97,9 @@ using ECDSA for bytes32;
         // Pull tokens into contract
         // TODO make it only possible to use WETH on rollup
         // TODO also consider making deposit a precompile?
-        balances[sender][asset] = balances[sender][asset] + amount;
-        return (balances[sender][asset]);
-        emit Deposited(amount, user, asset, balances[sender][asset]);
+        balances[user][asset] = balances[user][asset] + amount;
+        return (balances[user][asset]);
+        emit Deposited(amount, user, asset, balances[user][asset]);
     }
 
     function create(
@@ -110,14 +110,14 @@ using ECDSA for bytes32;
         uint256 credit
     ) external returns(Packet) {
         // Create channel
-        channel = Channel({
+        Channel channel = Channel({
             uid: uid,
             sender: sender,
             receiver: receiver,
             asset: asset,
             credit: credit
         });
-        channelId = getChannelIdFromChannel(channel);
+        bytes32 channelId = getChannelIdFromChannel(channel);
 
         // Ensure channel doesn't exist
         require(uid != bytes32(0), "Uid cannot be empty");
@@ -148,51 +148,54 @@ using ECDSA for bytes32;
     function settle(
         Packet packet
     ) external {
-        require(channels[packet.update.channelId].uid != bytes32(0), "Channel must exist");
-        if(msg.sender == channels[packet.update.channelId].sender) {
+        Channel channel = channels[packet.update.channelId];
+        require(channel.uid != bytes32(0), "Channel must exist");
+        if(msg.sender == channel.sender) {
             require(packet.update.isFinal);
         }
 
-        message = prefixed(keccak256(abi.encodePacked(packet)));
+        bytes32 message = prefixed(keccak256(abi.encodePacked(packet)));
 
         // Verify sig
-        require(message.recover(signature) == channel.sender, "Invalid signature");
+        require(message.recover(packet.proof) == channel.sender, "Invalid signature");
 
         // Packet user balance and delete channel
-        balances[receiver][asset] = balances[receiver][asset] + packet.update.debit;
-        balances[sender][asset] = balances[sender][asset] + channel.credit - packet.update.debit;
-        delete channels[channelId];
+        balances[channel.receiver][channel.asset] = balances[channel.receiver][channel.asset] + packet.update.debit;
+        balances[channel.sender][channel.asset] = balances[channel.sender][channel.asset] + channel.credit - packet.update.debit;
+        delete channels[packet.update.channelId];
         emit Settled(
             channel.uid, 
             channel.sender, 
             channel.receiver, 
             channel.credit,
             channel.asset,
-            amount,
-            proof
+            packet.update.debit,
+            packet.proof
         );
     }
 
-    function withdraw() {
+    function withdraw() external returns(uint256) {
         // TODO use connext here? Or just have a specific xReceiver?
     }
     
     // OFFCHAIN FUNCTIONS
 
+
+    // TODO this needs to be rewritten
     function pay(
         Packet packet,
         uint256 amount,
         bool isFinal
     ) external view returns (Packet, Update) {
-        require(channel[packet.channelId].uid != bytes32(0), "Channel must exist");
-        require(packet.debit + amount <= channel[packet.channelId].credit);
+        require(channels[packet.update.channelId].uid != bytes32(0), "Channel must exist");
+        require(update.packet.debit + amount <= channels[packet.update.channelId].credit);
         // Packet channel balances
         packet.debit = packet.debit + amount;
         packet.isFinal = isFinal;
 
         // Generate proof
         bytes32 message = prefixed(keccak256(abi.encodePacked(packet)));
-        // todo sign proof
+        bytes proof; // TODO generate signature
 
         Update update = Update({
             packet: packet,
@@ -202,10 +205,10 @@ using ECDSA for bytes32;
     }
 
     function verify(
-        Packet packet,
-        Update update
+        Packet oldPacket,
+        Packet newPacket // TODO is this correct?
     ) external view returns (Packet) {
-        require(channel[update.packet.channelId].uid != bytes32(0), "Channel must exist");
+        require(channels[packet.update.channelId].uid != bytes32(0), "Channel must exist");
         require(update.packet.debit <= channel[update.packet.channelId].credit, "Debit must be lower than credit");
         require(packet.debit <= update.packet.debit, "Debit can only increase");
         require(!packet.isFinal, "Cannot update finalized channel");
@@ -221,13 +224,13 @@ using ECDSA for bytes32;
         return packet;
     }
 
-    // GETTERS
+    // INTERNAL FNS
 
-    function getChannelIdFromChannel(Channel channel) external view returns (bytes32) {
+    function getChannelIdFromChannel(Channel channel) internal view returns (bytes32) {
         return (keccak256(abi.encodePacked(channel)));
     }
 
-    function prefixed(bytes32 msg) internal pure returns (bytes32) {
-        return ECDSA.toEthSignedMessageHash(msg);
+    function prefixed(bytes32 message) internal pure returns (bytes32) {
+        return ECDSA.toEthSignedMessageHash(message);
     }
 }

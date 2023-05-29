@@ -16,7 +16,7 @@
     
     Any other options?
 */
-pragma solidity ^0.8.13
+pragma solidity ^0.8.13;
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -26,7 +26,7 @@ Monkrush is an simple, ultra-scalable micropayment system.
 
 contract Monkrush { //TODO reentrancy management
 
-using ECDSA for bytes32
+using ECDSA for bytes32;
 
     // Onchain data structure
     struct Channel {
@@ -47,11 +47,11 @@ using ECDSA for bytes32
 
     struct Packet {
         Update update;
-        bytes calldata proof;
+        bytes proof;
     }
 
-    mapping((address => address) => uint256) balances;
-    mapping(bytes32 => Channel) channels;
+    mapping(address => mapping(address => uint256)) public balances;
+    mapping(bytes32 => Channel) public channels;
 
     // EVENTS
 
@@ -60,7 +60,7 @@ using ECDSA for bytes32
         address user,
         address asset,
         uint256 balance
-    )
+    );
 
     event Created(
         uint32 uid, 
@@ -85,7 +85,7 @@ using ECDSA for bytes32
         address user,
         address asset,
         uint256 balance
-    )
+    );
 
     // FUNCTIONS
 
@@ -103,7 +103,7 @@ using ECDSA for bytes32
     }
 
     function create(
-        uint32 uid
+        uint32 uid,
         address sender,
         address receiver,
         address asset,
@@ -111,7 +111,7 @@ using ECDSA for bytes32
     ) external returns(Packet) {
         // Create channel
         channel = Channel({
-            uid: uid
+            uid: uid,
             sender: sender,
             receiver: receiver,
             asset: asset,
@@ -138,7 +138,7 @@ using ECDSA for bytes32
         });
         Packet packet = Packet({
             update: update,
-            proof: bytes(0),
+            proof: bytes(0)
         });
 
         emit Created(uid, sender, receiver, msg.value);
@@ -185,19 +185,19 @@ using ECDSA for bytes32
         bool isFinal
     ) external view returns (Packet, Update) {
         require(channel[packet.channelId].uid != bytes32(0), "Channel must exist");
-        require(packet.debit + amount <= channel[packet.channelId].credit)
+        require(packet.debit + amount <= channel[packet.channelId].credit);
         // Packet channel balances
         packet.debit = packet.debit + amount;
         packet.isFinal = isFinal;
 
         // Generate proof
-        bytes32 message = prefixed(keccak256(abi.encodePacked(packet));
+        bytes32 message = prefixed(keccak256(abi.encodePacked(packet)));
         // todo sign proof
 
         Update update = Update({
-            packet,
-            proof
-        })
+            packet: packet,
+            proof: proof
+        });
         return (packet, update);
     }
 
@@ -207,10 +207,10 @@ using ECDSA for bytes32
     ) external view returns (Packet) {
         require(channel[update.packet.channelId].uid != bytes32(0), "Channel must exist");
         require(update.packet.debit <= channel[update.packet.channelId].credit, "Debit must be lower than credit");
-        require(packet.debit <= update.packet.debit, "Debit can only increase")
+        require(packet.debit <= update.packet.debit, "Debit can only increase");
         require(!packet.isFinal, "Cannot update finalized channel");
 
-.       // Packet channel balances
+       // Packet channel balances
         packet.debit = packet.debit + update.packet.amount;
         packet.isFinal = update.packet.isFinal;
 
